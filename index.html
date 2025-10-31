@@ -1,0 +1,1107 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import {
+  getAuth,
+  onAuthStateChanged,
+  signOut,
+  signInAnonymously,
+  signInWithCustomToken,
+} from 'firebase/auth';
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  getDocs,
+  Timestamp,
+  doc,
+  updateDoc,
+  deleteDoc,
+  setLogLevel, // Tambahkan untuk logging
+} from 'firebase/firestore';
+import {
+  LayoutDashboard,
+  Ticket,
+  FileInput,
+  HardHat,
+  UserCheck,
+  Users,
+  Calendar,
+  Briefcase,
+  Wrench,
+  Moon,
+  Sun,
+  User,
+  LogOut,
+  Menu,
+  X,
+  Loader2,
+  Send,
+  Trash2,
+  FileDown,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  MessageSquare, // Ikon untuk WhatsApp
+  Settings, // <-- TAMBAHKAN BARIS INI
+} from 'lucide-react';
+
+// --- Konfigurasi Firebase & ID Aplikasi ---
+
+// Salinan konfigurasi yang Anda berikan, sebagai fallback
+const USER_PROVIDED_CONFIG = {
+  apiKey: "AIzaSyC_imtiUZVavmtW94b0GbIj40teeK5jFwY",
+  authDomain: "laporan-ticket.firebaseapp.com",
+  projectId: "laporan-ticket",
+  storageBucket: "laporan-ticket.firebasestorage.app",
+  messagingSenderId: "507199711392",
+  appId: "1:507199711392:web:6d0a78039414c94cc5c1c5",
+  measurementId: "G-ME2B3T11ZL"
+};
+
+// Logika untuk mendapatkan App ID dari lingkungan
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// Logika untuk mendapatkan konfig Firebase (prioritaskan dari lingkungan)
+const firebaseConfigJSON = (typeof __firebase_config !== 'undefined' && __firebase_config !== '{}')
+  ? __firebase_config
+  : JSON.stringify(USER_PROVIDED_CONFIG);
+
+
+// --- Daftar Branch ---
+const BRANCH_LIST = [
+  'Branch Ciracas',
+  'Branch Cawang',
+  'Branch Duren sawit',
+  'Branch Rawamangun',
+  'Branch Ujung Menteng',
+  'Branch Pondok Kopi',
+  'Branch Sunter',
+  'Branch Pademangan',
+  'Branch Pluit',
+  'Branch Kelapa Gading',
+  'Branch Tanjung Priok'
+];
+
+// --- Konfigurasi Menu ---
+// Ini adalah pusat data untuk sidebar dan halaman
+const MENU_ITEMS = [
+  {
+    name: 'Dashboard',
+    icon: LayoutDashboard,
+    page: 'Dashboard',
+    isForm: false,
+  },
+  {
+    name: 'Laporan Ticket',
+    icon: Ticket,
+    page: 'Laporan Ticket',
+    isForm: true,
+    collectionName: 'tickets',
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'nomerTiket', label: 'Nomer Tiket', type: 'text' },
+      { name: 'judul', label: 'Judul Ticket', type: 'text' },
+      { name: 'namaCustomer', label: 'Nama Customer', type: 'text' },
+      { name: 'noTelepon', label: 'No. Telepon (WA)', type: 'text' },
+      { name: 'deskripsi', label: 'Deskripsi Masalah', type: 'textarea' },
+      { name: 'status', label: 'Status', type: 'select', options: ['Baru', 'Proses', 'Done'] },
+    ],
+  },
+  {
+    name: 'Input Ticket',
+    icon: FileInput,
+    page: 'Input Ticket',
+    isForm: true,
+    collectionName: 'tickets', // Menggunakan koleksi yang sama dengan Laporan
+    fields: [
+      { name: 'namaBranch', label: 'Nama Branch', type: 'select', options: BRANCH_LIST },
+      { name: 'nomerTiket', label: 'Nomer Tiket', type: 'text' },
+      { name: 'judul', label: 'Judul Ticket', type: 'text' },
+      { name: 'namaCustomer', label: 'Nama Customer', type: 'text' },
+      { name: 'noTelepon', label: 'No. Telepon (WA)', type: 'text' },
+      { name: 'deskripsi', label: 'Deskripsi Masalah', type: 'textarea' },
+      { name: 'status', label: 'Status', type: 'select', options: ['Baru', 'Proses', 'Done'] },
+    ],
+  },
+  {
+    name: 'Maintenance',
+    icon: HardHat,
+    page: 'Maintenance',
+    isForm: true,
+    collectionName: 'maintenance',
+    fields: [
+      { name: 'judul', label: 'Judul Maintenance', type: 'text' },
+      { name: 'lokasi', label: 'Lokasi', type: 'text' },
+      { name: 'deskripsi', label: 'Deskripsi Pekerjaan', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Konfirm Customer',
+    icon: UserCheck,
+    page: 'Konfirm Customer',
+    isForm: true,
+    collectionName: 'konfirmasi',
+    fields: [
+      { name: 'namaCustomer', label: 'Nama Customer', type: 'text' },
+      { name: 'noTelepon', label: 'No. Telepon (WA)', type: 'text' },
+      { name: 'ticketId', label: 'ID Ticket Terkait', type: 'text' },
+      { name: 'feedback', label: 'Feedback Customer', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Kendala Vendor',
+    icon: Users,
+    page: 'Kendala Vendor',
+    isForm: true,
+    collectionName: 'kendala_vendor',
+    fields: [
+      { name: 'namaVendor', label: 'Nama Vendor', type: 'text' },
+      { name: 'kendala', label: 'Deskripsi Kendala', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Absensi',
+    icon: Calendar,
+    page: 'Absensi',
+    isForm: true,
+    collectionName: 'absensi',
+    fields: [
+      { name: 'nama', label: 'Nama Karyawan', type: 'text' },
+      { name: 'status', label: 'Status Kehadiran', type: 'select', options: ['Terlambat', 'Sakit', 'Izin', 'Alpa'] },
+      { name: 'catatan', label: 'Catatan', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Tools',
+    icon: Wrench,
+    page: 'Tools',
+    isForm: true,
+    collectionName: 'tools',
+    fields: [
+      { name: 'namaTools', label: 'Nama Tools', type: 'text' },
+      { name: 'kondisi', label: 'Kondisi', type: 'select', options: ['Baik', 'Rusak', 'Hilang'] },
+      { name: 'catatan', label: 'Catatan', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Cuty',
+    icon: Briefcase,
+    page: 'Cuty',
+    isForm: true,
+    collectionName: 'cuty',
+    fields: [
+      { name: 'nama', label: 'Nama Karyawan', type: 'text' },
+      { name: 'tanggalMulai', label: 'Tanggal Mulai', type: 'date' },
+      { name: 'tanggalSelesai', label: 'Tanggal Selesai', type: 'date' },
+      { name: 'alasan', label: 'Alasan Cuti', type: 'textarea' },
+    ],
+  },
+  {
+    name: 'Optional',
+    icon: Settings,
+    page: 'Optional',
+    isForm: true,
+    collectionName: 'optional',
+    fields: [
+      { name: 'judul', label: 'Judul', type: 'text' },
+      { name: 'keterangan', label: 'Keterangan', type: 'textarea' },
+    ],
+  },
+];
+
+// --- Helper Functions ---
+
+/**
+ * Mendapatkan path data publik di Firestore.
+ */
+const getPublicDataPath = (collectionName) => {
+  return `/artifacts/${appId}/public/data/${collectionName}`;
+};
+
+/**
+ * Memformat objek Timestamp Firebase menjadi string tanggal dan waktu yang mudah dibaca.
+ */
+const formatTimestamp = (timestamp) => {
+  if (!timestamp) return 'N/A';
+  const d = timestamp.toDate();
+  return d.toLocaleString('id-ID', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+// --- Komponen Halaman ---
+
+/**
+ * Komponen Dashboard
+ * Menampilkan ringkasan data.
+ */
+function Dashboard({ db, isAuthReady, setCurrentPage }) {
+  const [stats, setStats] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!db || !isAuthReady) return;
+
+    const fetchStats = async () => {
+      setLoading(true);
+      const categories = MENU_ITEMS.filter(item => item.isForm);
+      const statsPromises = categories.map(async (cat) => {
+        try {
+          const path = getPublicDataPath(cat.collectionName);
+          const q = query(collection(db, path));
+          const querySnapshot = await getDocs(q);
+          return {
+            name: cat.name,
+            count: querySnapshot.size,
+            icon: cat.icon,
+          };
+        } catch (error) {
+          console.error(`Error fetching count for ${cat.name}:`, error);
+          return { name: cat.name, count: 0, icon: cat.icon };
+        }
+      });
+
+      const results = await Promise.all(statsPromises);
+      setStats(results);
+      setLoading(false);
+    };
+
+    fetchStats();
+  }, [db, isAuthReady]);
+
+  return (
+    <div className="animate-fade-in p-6">
+      <h1 className="text-3xl font-bold text-gray-800 mb-8">Dashboard</h1>
+      {loading ? (
+        <div className="flex justify-center items-center h-64">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {stats.map(stat => (
+            <button
+              key={stat.name}
+              onClick={() => setCurrentPage(stat.name)}
+              className="bg-white rounded-xl shadow-lg p-6 flex items-center space-x-4 transition-transform transform hover:scale-105 w-full text-left hover:shadow-xl"
+            >
+              <stat.icon className="w-12 h-12 text-blue-500" />
+              <div>
+                <p className="text-sm font-medium text-gray-500">{stat.name}</p>
+                <p className="text-3xl font-bold text-gray-800">{stat.count}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Komponen Halaman Entri Data (Formulir & Laporan)
+ * Komponen reusable untuk input data dan menampilkan laporan.
+ */
+function DataEntryPage({ db, user, isAuthReady, pageConfig }) {
+  const { name, collectionName, fields } = pageConfig; // <-- FIX 1: Ganti 'title' ke 'name'
+  const [formData, setFormData] = useState(() =>
+    fields.reduce((acc, field) => ({ ...acc, [field.name]: '' }), {})
+  );
+  const [reportData, setReportData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [entriesPerPage, setEntriesPerPage] = useState(10); // Default 10 entri
+  const [editingItem, setEditingItem] = useState(null); // <-- State untuk mode edit
+
+  // --- FIX 2: Reset form saat halaman berubah ---
+  // Ini untuk memperbaiki bug di mana mode "Edit"
+  // tetap aktif saat pindah ke halaman "Input"
+  useEffect(() => {
+    resetForm();
+  }, [pageConfig]); // <-- Panggil resetForm saat pageConfig berubah
+
+  // Listener real-time untuk data laporan
+  useEffect(() => {
+    if (!db || !isAuthReady || !collectionName) return;
+
+    setLoading(true);
+    const path = getPublicDataPath(collectionName);
+    const q = query(collection(db, path)); // Nanti bisa ditambah order by
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const data = [];
+      querySnapshot.forEach((doc) => {
+        data.push({ id: doc.id, ...doc.data() });
+      });
+      // Urutkan di client-side (terbaru dulu)
+      data.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds);
+      setReportData(data);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error listening to data: ", err);
+      setError("Gagal memuat data laporan.");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [db, isAuthReady, collectionName]);
+
+  // Filter data berdasarkan state pencarian dan tanggal
+  const filteredData = useMemo(() => {
+    let data = reportData;
+
+    // 1. Filter berdasarkan Rentang Tanggal
+    if (startDate && endDate) {
+      try {
+        const start = new Date(startDate).getTime() / 1000;
+        // Tambahkan 1 hari ke endDate (dalam detik) untuk mencakup keseluruhan hari itu
+        const end = (new Date(endDate).getTime() / 1000) + 86400;
+
+        data = data.filter(item => {
+          const itemTime = item.createdAt?.seconds;
+          if (!itemTime) return false;
+          return itemTime >= start && itemTime <= end;
+        });
+      } catch (e) {
+        console.error("Error parsing date: ", e);
+      }
+    }
+
+    // 2. Filter berdasarkan Search Term
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase();
+      data = data.filter(item => {
+        // Cek semua nilai field, termasuk createdBy dan createdAt
+        return Object.values(item).some(val => {
+          if (val instanceof Timestamp) {
+            return formatTimestamp(val).toLowerCase().includes(lowerSearch);
+          }
+          return String(val).toLowerCase().includes(lowerSearch);
+        });
+      });
+    }
+
+    return data;
+  }, [reportData, searchTerm, startDate, endDate]);
+
+  // Reset halaman saat filter berubah
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, startDate, endDate]);
+
+  // Data yang akan ditampilkan di tabel (sudah difilter + dipaginasi)
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * entriesPerPage;
+    const endIndex = startIndex + entriesPerPage;
+    return filteredData.slice(startIndex, endIndex);
+  }, [filteredData, currentPage, entriesPerPage]);
+
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Mengosongkan form
+  const resetForm = () => {
+    setFormData(fields.reduce((acc, field) => ({ ...acc, [field.name]: '' }), {}));
+    setEditingItem(null);
+    setError('');
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!db || !user) {
+      setError("Autentikasi gagal. Silakan muat ulang.");
+      return;
+    }
+
+    // Validasi sederhana
+    for (const field of fields) {
+      // Hanya validasi field yang bukan textarea
+      if (!formData[field.name] && field.type !== 'textarea') {
+        setError(`Field "${field.label}" tidak boleh kosong.`);
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    setError('');
+    
+    try {
+      const path = getPublicDataPath(collectionName);
+      const dataToSave = {
+        ...formData,
+        updatedAt: Timestamp.now(),
+        updatedBy: user.email || user.uid,
+      };
+
+      if (editingItem) {
+        // --- LOGIKA UPDATE (EDIT) ---
+        const docRef = doc(db, path, editingItem.id);
+        // Hapus info 'created' agar tidak ter-overwrite
+        delete dataToSave.createdAt;
+        delete dataToSave.createdBy;
+        await updateDoc(docRef, dataToSave);
+
+      } else {
+        // --- LOGIKA CREATE (BARU) ---
+        dataToSave.createdAt = Timestamp.now();
+        dataToSave.createdBy = user.email || user.uid;
+        // Hapus info 'updated'
+        delete dataToSave.updatedAt;
+        delete dataToSave.updatedBy;
+        
+        const docRef = await addDoc(collection(db, path), dataToSave);
+
+        // --- TRIGGER: Otomatis masuk ke Konfirm Customer ---
+        if (collectionName === 'tickets' && formData.status === 'Done') {
+          const konfirmasiPath = getPublicDataPath('konfirmasi');
+          await addDoc(collection(db, konfirmasiPath), {
+            namaCustomer: formData.namaCustomer || '',
+            noTelepon: formData.noTelepon || '',
+            ticketId: formData.nomerTiket || '',
+            feedback: '', // Feedback awal kosong
+            originalTicketId: docRef.id, // Referensi
+            createdAt: Timestamp.now(),
+            createdBy: 'Sistem (Otomatis)',
+          });
+        }
+      }
+      
+      resetForm(); // Reset form setelah sukses
+    } catch (err) {
+      console.error("Error saving document: ", err);
+      setError("Gagal menyimpan data.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // --- Fungsi Aksi untuk 'Konfirm Customer' ---
+
+  const handleEdit = (item) => {
+    setEditingItem(item);
+    // Isi form hanya dengan data yang relevan dengan 'fields'
+    const formDataForEdit = fields.reduce((acc, field) => {
+      acc[field.name] = item[field.name] || '';
+      return acc;
+    }, {});
+    setFormData(formDataForEdit);
+    window.scrollTo(0, 0); // Scroll ke atas ke form
+    setError(''); // Hapus error
+  };
+
+  const handleDelete = async (docId) => {
+    // Di aplikasi nyata, gunakan modal konfirmasi
+    // if (!window.confirm("Apakah Anda yakin ingin menghapus data ini?")) return;
+    
+    if (!db || !collectionName || !docId) return;
+    try {
+      const path = getPublicDataPath(collectionName);
+      const docRef = doc(db, path, docId);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.error("Error deleting document: ", err);
+      setError("Gagal menghapus data.");
+    }
+  };
+
+  const handleWhatsApp = (item) => {
+    let phone = item.noTelepon || '';
+    if (phone.startsWith('0')) {
+      phone = '62' + phone.substring(1); // Ganti 08... jadi 628...
+    }
+    phone = phone.replace(/[^0-9]/g, ''); // Hapus spasi atau -
+
+    if (!phone) {
+      setError("No. Telepon customer tidak valid atau kosong.");
+      return;
+    }
+    
+    // Pesan default - Dibuat lebih umum
+    const ticketRef = item.nomerTiket || item.ticketId || '[ID Tiket]';
+    const customerName = item.namaCustomer || '[Customer]';
+
+    const message = encodeURIComponent(
+      `Halo Bpk/Ibu ${customerName},\n\nIni adalah pesan terkait tiket ${ticketRef}.\n\n(Mohon lanjutkan pesan Anda di sini...)\n\nTerima kasih.`
+    );
+    
+    const waUrl = `https://wa.me/${phone}?text=${message}`;
+    window.open(waUrl, '_blank');
+  };
+
+  // Fungsi untuk download CSV
+  const handleDownloadCSV = () => {
+    if (filteredData.length === 0) {
+      console.warn("Tidak ada data untuk di-download.");
+      return;
+    }
+
+    // Buat header
+    const headers = [
+      ...fields.map(f => f.label),
+      "Dibuat Oleh",
+      "Waktu Input"
+    ];
+    
+    const csvRows = [headers.join(',')]; // Baris header
+
+    // Buat baris data
+    filteredData.forEach(item => {
+      const row = fields.map(field => {
+        const value = String(item[field.name] || '-').replace(/"/g, '""');
+        return `"${value}"`;
+      });
+      
+      row.push(`"${item.createdBy?.split('@')[0] || item.createdBy}"`);
+      row.push(`"${formatTimestamp(item.createdAt)}"`);
+      
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    const filename = `Laporan_${name.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.csv`; // <-- FIX 1: Ganti 'title' ke 'name'
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+
+  // Helper untuk render field input
+  const renderField = (field) => {
+    const commonProps = {
+      id: field.name,
+      name: field.name,
+      value: formData[field.name] || '',
+      onChange: handleChange,
+      className: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-3",
+    };
+
+    switch (field.type) {
+      case 'textarea':
+        return <textarea {...commonProps} rows={10} />; // Dibuat 10 baris
+      case 'select':
+        return (
+          <select {...commonProps}>
+            <option value="">Pilih {field.label}</option>
+            {field.options.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        );
+      case 'date':
+        return <input type="date" {...commonProps} />;
+      default: // text
+        return <input type="text" {...commonProps} />;
+    }
+  };
+
+  return (
+    <div className="animate-fade-in space-y-8 p-4 md:p-6">
+      {/* Bagian Input Data */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6">
+          {editingItem ? `Edit Data: ${name}` : name} 
+        </h2> 
+        
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-4">
+            <p className="text-sm font-medium text-red-700">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {fields.map(field => (
+            <div key={field.name}>
+              <label htmlFor={field.name} className="block text-sm font-medium text-gray-700">
+                {field.label}
+              </label>
+              {renderField(field)}
+            </div>
+          ))}
+          <div className="flex justify-end items-center space-x-3 pt-4">
+            {editingItem && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              >
+                Batal
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : (editingItem ? <Pencil className="w-4 h-4 mr-2" /> : <Send className="w-4 h-4 mr-2" />)}
+              {editingItem ? 'Update Data' : 'Simpan Data'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Bagian Laporan */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+          <h2 className="text-2xl font-semibold text-gray-800">Laporan {name}</h2> 
+          <button
+            onClick={handleDownloadCSV}
+            className="inline-flex items-center justify-center rounded-md border border-transparent bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 w-full md:w-auto"
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            Download CSV (Excel)
+          </button>
+        </div>
+
+        {/* --- Filter Bar --- */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+          <div className="relative md:col-span-1">
+            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">Cari Laporan</label>
+            <div className="relative">
+              <input
+                type="text"
+                id="search"
+                placeholder="Ketik untuk mencari..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              />
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="w-5 h-5 text-gray-400" />
+              </div>
+            </div>
+          </div>
+          <div>
+            <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">Dari Tanggal</label>
+            <input
+              type="date"
+              id="startDate"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">Sampai Tanggal</label>
+            <input
+              type="date"
+              id="endDate"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            />
+          </div>
+        </div>
+        {/* --- End Filter Bar --- */}
+
+
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex justify-center items-center h-32">
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+            </div>
+          ) : filteredData.length === 0 ? (
+            <p className="text-center text-gray-500">
+              {reportData.length > 0 ? 'Tidak ada data yang cocok dengan filter Anda.' : 'Belum ada data laporan.'}
+            </p>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  {fields.map(field => (
+                    <th key={field.name} scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                      {field.label}
+                    </th>
+                  ))}
+                  <th scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                    Dibuat Oleh
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                    Waktu Input
+                  </th>
+                  {/* --- Kolom Aksi (Berlaku untuk SEMUA) --- */}
+                  <th scope="col" className="px-6 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {paginatedData.map(item => (
+                  <tr key={item.id} className="hover:bg-gray-50">
+                    {fields.map(field => (
+                      <td key={field.name} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {item[field.name] || '-'}
+                      </td>
+                    ))}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      {item.createdBy?.split('@')[0] || item.createdBy}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      {formatTimestamp(item.createdAt)}
+                    </td>
+                    
+                    {/* --- Tombol Aksi (Berlaku untuk SEMUA) --- */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex items-center space-x-3">
+                        {/* Tampilkan tombol WA HANYA jika ada field noTelepon */}
+                        {(item.noTelepon) && (
+                          <button
+                            onClick={() => handleWhatsApp(item)}
+                            className="text-green-600 hover:text-green-800"
+                            title="Kirim WhatsApp"
+                          >
+                            <MessageSquare className="w-5 h-5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleEdit(item)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Edit"
+                        >
+                          <Pencil className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* --- Pagination Controls --- */}
+        <div className="flex flex-col md:flex-row items-center justify-between px-4 py-3 bg-white border-t border-gray-200 sm:px-6 rounded-b-xl mt-0">
+          <div className="flex-1 flex justify-between sm:hidden">
+             {/* Mobile buttons - simple */}
+            <button
+              onClick={() => setCurrentPage(p => p - 1)}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Sebelumnya
+            </button>
+            <button
+              onClick={() => setCurrentPage(p => p + 1)}
+              disabled={currentPage === Math.ceil(filteredData.length / entriesPerPage) || filteredData.length === 0}
+              className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Berikutnya
+            </button>
+          </div>
+    
+          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+            <div className="flex items-center space-x-2">
+              <label htmlFor="entries" className="text-sm font-medium text-gray-700">
+                Tampilkan
+              </label>
+              <select
+                id="entries"
+                name="entries"
+                value={entriesPerPage}
+                onChange={(e) => {
+                  setEntriesPerPage(Number(e.target.value));
+                  setCurrentPage(1); // Reset ke halaman 1
+                }}
+                className="block w-20 rounded-md border-gray-300 py-2 pl-3 pr-8 text-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-sm text-gray-700">entri</span>
+            </div>
+            
+            <div>
+              <p className="text-sm text-gray-700">
+                Menampilkan <span className="font-medium">{filteredData.length === 0 ? 0 : (currentPage - 1) * entriesPerPage + 1}</span> sampai <span className="font-medium">{Math.min(currentPage * entriesPerPage, filteredData.length)}</span> dari <span className="font-medium">{filteredData.length}</span> entri
+              </p>
+            </div>
+            
+            <div>
+              <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                <button
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <span className="sr-only">Sebelumnya</span>
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  disabled={currentPage === Math.ceil(filteredData.length / entriesPerPage) || filteredData.length === 0}
+                  className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <span className="sr-only">Berikutnya</span>
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+        {/* --- End Pagination Controls --- */}
+
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Komponen Sidebar
+ * Navigasi utama aplikasi.
+ */
+function Sidebar({ currentPage, setCurrentPage, user, onLogout, isOpen, onClose }) {
+  const [isDarkTheme, setIsDarkTheme] = useState(false); // Nanti bisa dikembangkan
+
+  const handleThemeToggle = () => {
+    setIsDarkTheme(!isDarkTheme);
+    // Logika ganti tema
+  };
+
+  return (
+    <>
+      {/* Overlay untuk mobile */}
+      <div
+        className={`fixed inset-0 z-20 bg-black bg-opacity-50 transition-opacity lg:hidden ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+      />
+      {/* Konten Sidebar */}
+      <div
+        className={`fixed z-30 inset-y-0 left-0 w-64 bg-gradient-to-b from-blue-700 to-blue-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 lg:static lg:inset-0`}
+      >
+        {/* Header Sidebar */}
+        <div className="flex items-center justify-between p-4 h-16 shadow-lg">
+          <h1 className="text-xl font-bold">Laporan App</h1>
+          <button onClick={onClose} className="lg:hidden text-white hover:text-blue-200">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Menu Navigasi */}
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {MENU_ITEMS.map(item => (
+            <button
+              key={item.name}
+              onClick={() => {
+                setCurrentPage(item.page);
+                onClose(); // Tutup sidebar di mobile setelah klik
+              }}
+              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors duration-200 ${
+                currentPage === item.page
+                  ? 'bg-blue-900 bg-opacity-50 text-white'
+                  : 'text-blue-100 hover:bg-blue-800 hover:text-white'
+              }`}
+            >
+              <item.icon className="w-5 h-5" />
+              <span className="font-medium">{item.name}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Footer Sidebar */}
+        <div className="p-4 border-t border-blue-600">
+          {/* Info User */}
+          <div className="flex items-center space-x-3 mb-4">
+            <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
+              <User className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">
+                {user ? (user.email ? user.email.split('@')[0] : 'Guest') : 'Loading...'}
+              </p>
+              <p className="text-sm text-blue-200">
+                {user ? (user.isAnonymous ? 'Anonymous' : 'Online') : '...'}
+              </p>
+            </div>
+          </div>
+          {/* Tombol Logout */}
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 transition-colors duration-200"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Komponen Aplikasi Utama
+ * Mengelola state global, auth, dan layout.
+ */
+export default function App() {
+  const [currentPage, setCurrentPage] = useState('Dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  // State untuk Firebase
+  const [app, setApp] = useState(null);
+  const [auth, setAuth] = useState(null);
+  const [db, setDb] = useState(null);
+  
+  // State untuk User
+  const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false); // Status kesiapan auth
+
+  // 1. Inisialisasi Firebase
+  useEffect(() => {
+    try {
+      const config = JSON.parse(firebaseConfigJSON);
+      const firebaseApp = initializeApp(config);
+      const firestoreDb = getFirestore(firebaseApp);
+      const firebaseAuth = getAuth(firebaseApp);
+      
+      setApp(firebaseApp);
+      setDb(firestoreDb);
+      setAuth(firebaseAuth);
+
+      // Aktifkan logging Firebase (membantu debug)
+      setLogLevel('debug');
+
+    } catch (e) {
+      console.error("Error initializing Firebase:", e);
+    }
+  }, []); // Hanya jalan sekali
+
+  // 2. Autentikasi User
+  useEffect(() => {
+    if (!auth) return;
+
+    const signInUser = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          console.log("Signing in with custom token...");
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          console.log("Signing in anonymously...");
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("Firebase Auth Error:", error);
+      }
+    };
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+      if (currentUser) {
+        console.log("User signed in:", currentUser.uid);
+      } else {
+        console.log("User signed out.");
+        // Coba sign-in lagi jika tidak ada user
+        if (!isAuthReady) {
+           signInUser();
+        }
+      }
+    });
+
+    // Sign in saat auth siap
+    signInUser();
+
+    return () => unsubscribe();
+  }, [auth]); // Jalan saat auth siap
+
+  // Fungsi Logout
+  const handleLogout = () => {
+    if (auth) {
+      signOut(auth).catch((error) => console.error('Logout error:', error));
+    }
+  };
+
+  // Render konten halaman berdasarkan state
+  const renderPage = () => {
+    const pageConfig = MENU_ITEMS.find(item => item.page === currentPage);
+    if (!pageConfig) return <Dashboard db={db} isAuthReady={isAuthReady} setCurrentPage={setCurrentPage} />;
+
+    if (pageConfig.isForm) {
+      return <DataEntryPage db={db} user={user} isAuthReady={isAuthReady} pageConfig={pageConfig} />;
+    } else {
+      return <Dashboard db={db} isAuthReady={isAuthReady} setCurrentPage={setCurrentPage} />;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-100">
+      <Sidebar
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        user={user}
+        onLogout={handleLogout}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header Utama (Konten) */}
+        <header className="bg-white shadow-md h-16 flex items-center justify-between px-6 lg:justify-end">
+          {/* Tombol Menu Mobile */}
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="text-gray-600 hover:text-gray-900 lg:hidden"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          
+          {/* Placeholder untuk ikon di header jika perlu */}
+          <div className="flex items-center space-x-4">
+             {/* <button className="text-gray-600 hover:text-gray-900">
+               <Sun className="w-6 h-6" />
+             </button> */}
+          </div>
+        </header>
+        
+        {/* Konten Utama */}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100">
+          {isAuthReady ? (
+            renderPage()
+          ) : (
+            <div className="w-full h-full flex justify-center items-center">
+              <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+
+
+
+
+
+
+
+
